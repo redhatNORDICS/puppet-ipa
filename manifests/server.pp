@@ -47,6 +47,7 @@ class ipa::server(
 	# packages products to install ?
 	$ntp = false,			# opposite of ipa-server-install default
 	$dns = false,			# must be set at install time to be used
+        $forwarders = [],
 	$dogtag = false,
 
 	$email = '',			# defaults to root@domain, important...
@@ -196,17 +197,17 @@ class ipa::server(
 	$valid_fqdn = "${valid_hostname}.${valid_domain}"
 
 	if $dns {
-		package { "${::ipa::params::package_bind}":
+		package { $::ipa::params::package_bind:
 			ensure => present,
-			before => Package["${::ipa::params::package_ipa_server}"],
+			before => Package[$::ipa::params::package_ipa_server],
 		}
 	}
 	if "${::ipa::params::package_python_argparse}" != '' {
 		# used by diff.py
-		package { "${::ipa::params::package_python_argparse}":
+		package { $::ipa::params::package_python_argparse:
 			ensure => present,
 			before => [
-				Package["${::ipa::params::package_ipa_server}"],
+				Package[$::ipa::params::package_ipa_server],
 				File["${vardir}/diff.py"],
 			],
 		}
@@ -230,7 +231,7 @@ class ipa::server(
 		backup => false,		# don't backup to filebucket
 		ensure => present,
 		require => [
-			Package["${::ipa::params::package_ipa_server}"],
+			Package[$::ipa::params::package_ipa_server],
 			File["${vardir}/"],
 		],
 	}
@@ -476,8 +477,14 @@ class ipa::server(
 		default => '--no-ntp',
 	}
 
+	# TODO: validate forwarders is array of valid IP addresses?
+	if size($forwarders) > 0 and $dns {
+		$forwarderopts = join(prefix($forwarders, '--forwarder='), ' ')
+	} else {
+		$forwarderopts = '--no-forwarders'
+	}
 	$args09 = $dns ? {
-		true => '--setup-dns --no-forwarders',
+		true => "--setup-dns $forwarderopts",
 		default => '',
 	}
 
@@ -540,6 +547,11 @@ class ipa::server(
 			alias => 'ipa-install',	# same alias as client to prevent both!
 		}
 
+		# NOTE: If we are dns, we should add dnsrecord.
+		if $dns {
+			Ipa::Server::Dnsrec <<| |>>
+		}
+
 		# NOTE: this is useful to collect only on hosts that are installed or
 		# which are replicas that have been installed. ensure the type checks
 		# this prepares for any host we prepare for to potentially join us...
@@ -552,6 +564,16 @@ class ipa::server(
 		# NOTE: this is useful to export from any host that didn't install !!!
 		# this sends the message: "prepare for me to potentially join please!"
 		@@ipa::server::replica::prepare { "${valid_fqdn}":
+		}
+
+		# NOTE: If IPA is dns, this is useful to tell the "master" that this
+		# replica needs a dns entry if one is not already present.
+		@@ipa::server::dnsrec { "$valid_hostname":
+			zone_name      => "$valid_domain",
+			record_name    => "$valid_hostname",
+			record_type    => '--a-ip-address',
+			record_data    => "$::ipaddress",
+			create_reverse => '--a-create-reverse',
 		}
 
 		class { '::ipa::server::replica::install':
