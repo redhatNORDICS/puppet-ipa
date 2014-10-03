@@ -32,7 +32,7 @@ define ipa::server::dnsrec(
 			> /dev/null 2>&1"
 
 	$args = "$zone_name $record_name $record_type=$record_data $create_reverse"
-	exec { 'dnsrecord-a-add-$record_name.$zone_name-$record_data':
+	exec { "dnsrecord-a-add-$record_name.$zone_name-$record_data":
 		# This runs if the dns record does not already exist.
 		command    => "/usr/bin/ipa dnsrecord-add $args",
 		logoutput  => on_failure,
